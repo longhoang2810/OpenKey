@@ -176,18 +176,41 @@ def compile_storyboard():
     run_cmd(["xcrun", "ibtool", "--errors", "--compile", output,
              os.path.join(MODERNKEY_ROOT, "Base.lproj", "Main.storyboard")])
 
+# Accessibility (TCC) remembers an app by its designated requirement. Ad-hoc signing makes that
+# the cdhash, which changes on every build, so the permission has to be granted again after each
+# install. A fixed certificate keeps the grant across builds; a self-signed one is enough:
+#   cd "$(mktemp -d)" && /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+#     -subj "/CN=OpenKey Local Signing" -addext "basicConstraints=critical,CA:false" \
+#     -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning" \
+#     -keyout key.pem -out cert.pem && /usr/bin/openssl pkcs12 -export -inkey key.pem -in cert.pem \
+#     -out id.p12 -passout pass:openkey && security import id.p12 -P openkey -T /usr/bin/codesign \
+#     -k ~/Library/Keychains/login.keychain-db && rm key.pem cert.pem id.p12
+SIGN_IDENTITY = os.environ.get("OPENKEY_SIGN_IDENTITY", "OpenKey Local Signing")
+
+def signing_identity():
+    identities = subprocess.run(["security", "find-identity", "-p", "codesigning"],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
+    if f'"{SIGN_IDENTITY}"' in identities:
+        return SIGN_IDENTITY
+    print(f"WARNING: no code signing identity \"{SIGN_IDENTITY}\" in the keychain; signing ad-hoc.")
+    print("         Accessibility permission will have to be granted again after installing this build.")
+    return "-"
+
 def codesign_apps():
-    print("Performing ad-hoc codesigning...")
-    
+    identity = signing_identity()
+    print(f"Codesigning with identity: {identity}")
+    sign = ["codesign", "--force", "--timestamp=none", "--sign", identity]
+
     # Sign helper app binary and bundle
     helper_bin = os.path.join(HELPER_MACOS_DIR, "OpenKeyHelper")
-    run_cmd(["codesign", "--force", "--sign", "-", helper_bin])
-    run_cmd(["codesign", "--force", "--sign", "-", HELPER_APP_DIR])
+    run_cmd(sign + [helper_bin])
+    run_cmd(sign + [HELPER_APP_DIR])
 
     # Sign main app binary and bundle
     main_bin = os.path.join(APP_MACOS_DIR, "OpenKey")
-    run_cmd(["codesign", "--force", "--sign", "-", main_bin])
-    run_cmd(["codesign", "--force", "--sign", "-", APP_DIR])
+    run_cmd(sign + [main_bin])
+    run_cmd(sign + [APP_DIR])
+    print(run_cmd(["codesign", "--display", "--requirements", "-", APP_DIR]).strip())
 
 def main():
     print("=== STARTING BUILD PROCESS ===")

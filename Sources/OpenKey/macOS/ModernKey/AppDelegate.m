@@ -90,7 +90,7 @@ extern bool convertToolDontAlertWhenCompleted;
 -(void)askPermission {
     NSAlert *alert = [[NSAlert alloc] init];
     [alert setMessageText: [NSString stringWithFormat:@"OpenKey cần bạn cấp quyền để có thể hoạt động!"]];
-    [alert setInformativeText:@"Vui lòng chạy lại ứng dụng sau khi cấp quyền."];
+    [alert setInformativeText:@"OpenKey sẽ tự chạy tiếp ngay khi bạn cấp quyền Trợ năng (Accessibility)."];
 
     [alert addButtonWithTitle:@"Không"];
     [alert addButtonWithTitle:@"Cấp quyền"];
@@ -100,11 +100,24 @@ extern bool convertToolDontAlertWhenCompleted;
 
     NSModalResponse res = [alert runModal];
 
-    if (res == 1001) {
-        MJAccessibilityOpenPanel();
+    if (res != 1001) {
+        [NSApp terminate:0];
+        return;
     }
+    MJAccessibilityOpenPanel();
 
-    [NSApp terminate:0];
+    //wait for the grant instead of asking for a relaunch; give up after 10 minutes,
+    //since the app has no menu bar icon yet to quit it from
+    __block int secondsLeft = 600;
+    [NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer) {
+        if (MJAccessibilityIsEnabled()) {
+            [timer invalidate];
+            [self startOpenKey];
+        } else if (--secondsLeft <= 0) {
+            [timer invalidate];
+            [NSApp terminate:0];
+        }
+    }];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
@@ -128,7 +141,10 @@ extern bool convertToolDontAlertWhenCompleted;
         [self askPermission];
         return;
     }
-    
+    [self startOpenKey];
+}
+
+-(void)startOpenKey {
     vShowIconOnDock = (int)[[NSUserDefaults standardUserDefaults] integerForKey:@"vShowIconOnDock"];
     if (vShowIconOnDock)
         [NSApp setActivationPolicy: NSApplicationActivationPolicyRegular];
