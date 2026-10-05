@@ -68,23 +68,25 @@ static CFRunLoopSourceRef runLoopSource;
     // Create a run loop source.
     runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0);
     
-    // Add to the current run loop.
-    CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, kCFRunLoopCommonModes);
+    // Add to the main run loop, which NSApplicationMain already runs.
+    // Do not spin a nested CFRunLoopRun here: it never returns and starves the main queue.
+    CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, kCFRunLoopCommonModes);
     
     // Enable the event tap.
     CGEventTapEnable(eventTap, true);
     
-    // Set it all running.
-    CFRunLoopRun();
-    
     return YES;
+}
+
++(void)enableEventTap {
+    if (_isInited && eventTap) {
+        CGEventTapEnable(eventTap, true);
+    }
 }
 
 +(BOOL)stopEventTap {
     if (_isInited) { //release all object
-        CFRunLoopStop(CFRunLoopGetCurrent());
-        
-        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, kCFRunLoopDefaultMode);
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, kCFRunLoopCommonModes);
         CFRelease(runLoopSource);
         runLoopSource = nil;
         

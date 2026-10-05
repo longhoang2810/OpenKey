@@ -10,6 +10,7 @@
 #import "Engine.h"
 #import "AppDelegate.h"
 #import "ViewController.h"
+#import "OpenKeyManager.h"
 
 #define FRONT_APP [[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier
 #define OTHER_CONTROL_KEY (_flag & kCGEventFlagMaskCommand) || (_flag & kCGEventFlagMaskControl) || \
@@ -68,7 +69,6 @@ extern "C" {
     CGEventTapProxy _proxy;
     
     Uint16 _newCharString[MAX_UNICODE_STRING];
-    Uint16 _newCharSize;
     bool _willContinuteSending = false;
     bool _willSendControlKey = false;
     
@@ -345,7 +345,7 @@ extern "C" {
         CGEventTapPostEvent(_proxy, eventBackSpaceDown);
         CGEventTapPostEvent(_proxy, eventBackSpaceUp);
         
-        if (IS_DOUBLE_CODE(vCodeTable)) { //VNI or Unicode Compound
+        if (IS_DOUBLE_CODE(vCodeTable) && !_syncKey.empty()) { //VNI or Unicode Compound
             if (_syncKey.back() > 1) {
                 if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
                     CGEventTapPostEvent(_proxy, eventBackSpaceDown);
@@ -367,7 +367,7 @@ extern "C" {
         CGEventTapPostEvent(_proxy, eventVkeyDown);
         CGEventTapPostEvent(_proxy, eventVkeyUp);
         
-        if (IS_DOUBLE_CODE(vCodeTable)) { //VNI or Unicode Compound
+        if (IS_DOUBLE_CODE(vCodeTable) && !_syncKey.empty()) { //VNI or Unicode Compound
             if (_syncKey.back() > 1) {
                 if (!(vCodeTable == 3 && containUnicodeCompoundApp(FRONT_APP))) {
                     CGEventTapPostEvent(_proxy, eventVkeyDown);
@@ -395,23 +395,17 @@ extern "C" {
         CFRelease(eventVkeyUp);
     }
     
-    void SendNewCharString(const bool& dataFromMacro=false, const Uint16& offset=0) {
-        _j = 0;
-        _newCharSize = dataFromMacro ? pData->macroData.size() : pData->newCharCount;
-        _willContinuteSending = false;
+    void SendNewCharString(const bool& dataFromMacro=false) {
         _willSendControlKey = false;
+        //charData is stored reversed (read from the end); macroData is read from the start
+        _k = dataFromMacro ? 0 : min((int)pData->newCharCount, MAX_BUFF) - 1;
         
-        if (_newCharSize > 0) {
-            for (_k = dataFromMacro ? offset : pData->newCharCount - 1 - offset;
-                 dataFromMacro ? _k < pData->macroData.size() : _k >= 0;
-                 dataFromMacro ? _k++ : _k--) {
-                
-                if (_j >= 16) {
-                    _willContinuteSending = true;
-                    break;
-                }
-                
+        do { //each event carries at most ~16 UTF-16 units; one entry adds 1 or 2
+            _j = 0;
+            while (_j < 16 && (dataFromMacro ? _k < (int)pData->macroData.size() : _k >= 0)) {
                 _tempChar = DYNA_DATA(dataFromMacro, _k);
+                dataFromMacro ? _k++ : _k--;
+                
                 if (_tempChar & PURE_CHARACTER_MASK) {
                     _newCharString[_j++] = _tempChar;
                     if (IS_DOUBLE_CODE(vCodeTable)) {
@@ -434,7 +428,6 @@ extern "C" {
                             if (vCodeTable == 2) //VNI
                                 InsertKeyLength(2);
                             _newCharString[_j++] = _newCharHi;
-                            _newCharSize++;
                         } else {
                             if (vCodeTable == 2) //VNI
                                 InsertKeyLength(1);
@@ -447,39 +440,33 @@ extern "C" {
                         InsertKeyLength(_newCharHi > 0 ? 2 : 1);
                         _newCharString[_j++] = _newChar;
                         if (_newCharHi > 0) {
-                            _newCharSize++;
                             _newCharString[_j++] = _unicodeCompoundMark[_newCharHi - 1];
                         }
-                        
                     }
                 }
-            }//end for
-        }
-        
-        if (!_willContinuteSending && (pData->code == vRestore || pData->code == vRestoreAndStartNewSession)) { //if is restore
-            if (keyCodeToCharacter(_keycode) != 0) {
-                _newCharSize++;
-                _newCharString[_j++] = keyCodeToCharacter(_keycode | ((_flag & kCGEventFlagMaskAlphaShift) || (_flag & kCGEventFlagMaskShift) ? CAPS_MASK : 0));
-            } else {
-                _willSendControlKey = true;
             }
-        }
-        if (!_willContinuteSending && pData->code == vRestoreAndStartNewSession) {
-            startNewSession();
-        }
-        
-        _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
-        _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
-        CGEventKeyboardSetUnicodeString(_newEventDown, _willContinuteSending ? 16 : _newCharSize - offset, _newCharString);
-        CGEventKeyboardSetUnicodeString(_newEventUp, _willContinuteSending ? 16 : _newCharSize - offset, _newCharString);
-        CGEventTapPostEvent(_proxy, _newEventDown);
-        CGEventTapPostEvent(_proxy, _newEventUp);
-        CFRelease(_newEventDown);
-        CFRelease(_newEventUp);
-
-        if (_willContinuteSending) {
-            SendNewCharString(dataFromMacro, dataFromMacro ? _k : 16);
-        }
+            _willContinuteSending = dataFromMacro ? _k < (int)pData->macroData.size() : _k >= 0;
+            
+            if (!_willContinuteSending && (pData->code == vRestore || pData->code == vRestoreAndStartNewSession)) { //if is restore
+                if (keyCodeToCharacter(_keycode) != 0) {
+                    _newCharString[_j++] = keyCodeToCharacter(_keycode | ((_flag & kCGEventFlagMaskAlphaShift) || (_flag & kCGEventFlagMaskShift) ? CAPS_MASK : 0));
+                } else {
+                    _willSendControlKey = true;
+                }
+            }
+            if (!_willContinuteSending && pData->code == vRestoreAndStartNewSession) {
+                startNewSession();
+            }
+            
+            _newEventDown = CGEventCreateKeyboardEvent(myEventSource, 0, true);
+            _newEventUp = CGEventCreateKeyboardEvent(myEventSource, 0, false);
+            CGEventKeyboardSetUnicodeString(_newEventDown, _j, _newCharString);
+            CGEventKeyboardSetUnicodeString(_newEventUp, _j, _newCharString);
+            CGEventTapPostEvent(_proxy, _newEventDown);
+            CGEventTapPostEvent(_proxy, _newEventUp);
+            CFRelease(_newEventDown);
+            CFRelease(_newEventUp);
+        } while (_willContinuteSending);
         
         //the case when hCode is vRestore or vRestoreAndStartNewSession, the word is invalid and last key is control key such as TAB, LEFT ARROW, RIGHT ARROW,...
         if (_willSendControlKey) {
@@ -512,10 +499,20 @@ extern "C" {
             vLanguage = 0;
         if (HAS_BEEP(vSwitchKeyStatus))
             NSBeep();
-        [appDelegate onImputMethodChanged:YES];
+        //UI and prefs work must not run inside the event tap callback
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [appDelegate onImputMethodChanged:YES];
+        });
         startNewSession();
     }
-    
+
+    void QuickConvertAsync() {
+        //clipboard work and its alert (runModal) must not block the event tap callback
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [appDelegate onQuickConvert];
+        });
+    }
+
     void handleMacro() {
         //fix autocomplete
         if (vFixRecommendBrowser) {
@@ -574,6 +571,13 @@ extern "C" {
      * MAIN Callback.
      */
     CGEventRef OpenKeyCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon) {
+        if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+            [OpenKeyManager enableEventTap];
+            return event;
+        }
+        if (event == NULL) {
+            return event;
+        }
         //dont handle my event
         if (CGEventGetIntegerValueField(event, kCGEventSourceStateID) == CGEventSourceGetSourceStateID(myEventSource)) {
             return event;
@@ -599,7 +603,7 @@ extern "C" {
                     return NULL;
                 }
                 if (GET_SWITCH_KEY(convertToolHotKey) == _keycode && checkHotKey(convertToolHotKey, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)){
-                    [appDelegate onQuickConvert];
+                    QuickConvertAsync();
                     _lastFlag = 0;
                     _hasJustUsedHotKey = true;
                     return NULL;
@@ -619,7 +623,7 @@ extern "C" {
                 }
                 if (checkHotKey(convertToolHotKey, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)) {
                     _lastFlag = 0;
-                    [appDelegate onQuickConvert];
+                    QuickConvertAsync();
                     _hasJustUsedHotKey = true;
                     return NULL;
                 }
@@ -696,7 +700,7 @@ extern "C" {
                 
                 //fix autocomplete
                 if (vFixRecommendBrowser && pData->extCode != 4) {
-                    if (vFixChromiumBrowser && [_unicodeCompoundApp containsObject:FRONT_APP]) {
+                    if (vFixChromiumBrowser && containUnicodeCompoundApp(FRONT_APP)) {
                         if (pData->backspaceCount > 0) {
                             SendShiftAndLeftArrow();
                             if (pData->backspaceCount == 1)

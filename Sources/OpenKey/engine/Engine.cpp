@@ -992,7 +992,7 @@ void reverseLastStandaloneChar(const Uint32& keyCode, const bool& isCaps) {
 }
 
 void checkForStandaloneChar(const Uint16& data, const bool& isCaps, const Uint32& keyWillReverse) {
-    if (CHR(_index - 1) == keyWillReverse && TypingWord[_index - 1] & TONEW_MASK) {
+    if (_index > 0 && CHR(_index - 1) == keyWillReverse && TypingWord[_index - 1] & TONEW_MASK) {
         hCode = vWillProcess;
         hBPC = 1;
         hNCC = 1;
@@ -1269,6 +1269,10 @@ bool checkQuickConsonant() {
             l = 1;
         }
         if (l == 1) {
+            //_index stops growing at MAX_BUFF-1, so hNCC may claim more chars than hData holds
+            // ponytail: the dropped last char of a 31+ char word is lost; only matters for absurd words
+            if (hNCC > _index)
+                hNCC = _index;
             _hasHandleQuickConsonant = true;
             for (i = _index - 1; i >= 0; i--) {
                 hData[_index - 1 - i] = GET(TypingWord[i]);

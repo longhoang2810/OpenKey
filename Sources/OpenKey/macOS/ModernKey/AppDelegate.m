@@ -291,6 +291,7 @@ extern bool convertToolDontAlertWhenCompleted;
 
     [[NSUserDefaults standardUserDefaults] setInteger:1 forKey:@"GrayIcon"];
     [[NSUserDefaults standardUserDefaults] setInteger:1 forKey:@"RunOnStartup"];
+    [self setRunOnStartup:YES];
 
     [self fillData];
     [viewController fillData];
@@ -389,11 +390,8 @@ extern bool convertToolDontAlertWhenCompleted;
         [mnuVietnameseLocaleCP1258 setState:NSControlStateValueOn];
     }
     vCodeTable = (int)intCode;
-    
-    //
-    NSInteger intRunOnStartup = [[NSUserDefaults standardUserDefaults] integerForKey:@"RunOnStartup"];
-    [self setRunOnStartup:intRunOnStartup ? YES : NO];
-
+    // RunOnStartup is applied at launch and on toggle only: SMLoginItemSetEnabled is a slow IPC
+    // and fillData runs on every language switch.
 }
 
 -(void)onImputMethodChanged:(BOOL)willNotify {
