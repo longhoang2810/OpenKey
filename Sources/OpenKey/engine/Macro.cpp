@@ -12,6 +12,7 @@
 #include <iostream>
 #include <memory.h>
 #include <fstream>
+#include <stdexcept>
 
 using namespace std;
 
@@ -79,21 +80,28 @@ static void convert(const string& str, vector<Uint32>& outData) {
  */
 void initMacroMap(const Byte* pData, const int& size) {
     macroMap.clear();
+    if (pData == NULL || size < 2)
+        return;
     Uint16 macroCount = 0;
-    Uint32 cursor = 0;
-    if (size >= 2) {
-        memcpy(&macroCount, pData + cursor, 2);
-        cursor+=2;
-    }
+    memcpy(&macroCount, pData, 2);
+    const Uint32 end = (Uint32)size;
+    Uint32 cursor = 2;
     Uint8 macroTextSize;
     Uint16 macroContentSize;
     for (int i = 0; i < macroCount; i++) {
+        //stored data can be truncated or corrupt: stop at the first entry that does not fit
+        if (cursor + 1 > end)
+            break;
         macroTextSize = pData[cursor++];
+        if (cursor + macroTextSize + 2 > end)
+            break;
         string macroText((char*)pData + cursor, macroTextSize);
         cursor += macroTextSize;
         
         memcpy(&macroContentSize, pData + cursor, 2);
         cursor+=2;
+        if (cursor + macroContentSize > end)
+            break;
         string macroContent((char*)pData + cursor, macroContentSize);
         cursor += macroContentSize;
         
@@ -102,8 +110,12 @@ void initMacroMap(const Byte* pData, const int& size) {
         data.macroContent = macroContent;
         
         vector<Uint32> key;
-        convert(macroText, key);
-        convert(macroContent, data.macroContentCode);
+        try {
+            convert(macroText, key);
+            convert(macroContent, data.macroContentCode);
+        } catch (const std::range_error&) { //not UTF-8
+            continue;
+        }
         
         macroMap[key] = data;
     }
@@ -214,6 +226,9 @@ void getAllMacro(vector<vector<Uint32>>& keys, vector<string>& macroTexts, vecto
 }
 
 bool addMacro(const string& macroText, const string& macroContent) {
+    //getMacroSaveData stores the name length in 1 byte and the content length in 2
+    if (macroText.size() > 0xFF || macroContent.size() > 0xFFFF)
+        return false;
     vector<Uint32> key;
     convert(macroText, key);
     if (macroMap.find(key) == macroMap.end()) { //add new macro
@@ -240,8 +255,12 @@ bool deleteMacro(const string& macroText) {
 }
 
 void onTableCodeChange() {
-    for (std::map<vector<Uint32>, MacroData>::iterator it = macroMap.begin(); it != macroMap.end(); ++it) {
-        convert(it->second.macroContent, it->second.macroContentCode);
+    //the keys hold table codes too, not just the contents: rebuild the whole map, or macros with
+    //Vietnamese letters in the name stop matching and can no longer be found to delete
+    map<vector<Uint32>, MacroData> old;
+    old.swap(macroMap);
+    for (std::map<vector<Uint32>, MacroData>::iterator it = old.begin(); it != old.end(); ++it) {
+        addMacro(it->second.macroText, it->second.macroContent);
     }
 }
 
@@ -267,7 +286,9 @@ void readFromFile(const string& path, const bool& append) {
         }
         while (getline (myfile,line) ) {
             k++;
-            if (k == 1) continue;
+            if (!line.empty() && line.back() == '\r') //CRLF file: the CR would end up in the content
+                line.pop_back();
+            if (k == 1 && line.compare(0, 1, ";") == 0) continue; //header comment
             pos = line.find(":");
             if (string::npos != pos) {
                 name = line.substr(0, pos);
@@ -283,8 +304,11 @@ void readFromFile(const string& path, const bool& append) {
 					}
 				}
 
-                if (name.compare("") != 0 && !hasMacro(name)) {
-                    addMacro(name, content);
+                try {
+                    if (name.compare("") != 0 && !hasMacro(name)) {
+                        addMacro(name, content);
+                    }
+                } catch (const std::range_error&) { //a line that is not UTF-8 is skipped
                 }
             }
         }

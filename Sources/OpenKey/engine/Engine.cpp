@@ -1293,6 +1293,35 @@ bool checkQuickConsonant() {
 }
 /*==========================================================================================================*/
 
+//keep hMacroKey equal to what the current word shows on screen
+static void updateMacroKey(const Uint16& data) {
+    if (hCode == vDoNothing) {
+        hMacroKey.push_back(data | (_isCaps ? CAPS_MASK : 0));
+    } else if (hCode == vWillProcess || hCode == vRestore) {
+        //hBPC characters were deleted; the screen now ends with the last hNCC characters of
+        //the word, plus the typed key itself on a restore (checkGrammar(-1) has hBPC = hNCC - 1)
+        for (i = 0; i < hBPC && hMacroKey.size() > 0; i++) {
+            hMacroKey.pop_back();
+        }
+        i = _index - hNCC - (hCode == vRestore ? 1 : 0);
+        for (i = i < 0 ? 0 : i; i < _index; i++) {
+            hMacroKey.push_back(TypingWord[i]);
+        }
+    }
+}
+
+//Backspace brought back an earlier word or punctuation run: it is the macro key again
+static void restoreMacroKey() {
+    hMacroKey.clear();
+    if (_specialChar.size() > 0) {
+        hMacroKey = _specialChar;
+    } else {
+        for (i = 0; i < _index; i++) {
+            hMacroKey.push_back(TypingWord[i]);
+        }
+    }
+}
+
 void vEnglishMode(const vKeyEventState& state, const Uint16& data, const bool& isCaps, const bool& otherControlKey) {
     hCode = vDoNothing;
     if (state == vKeyEventState::MouseDown || (otherControlKey && !isCaps)) {
@@ -1327,7 +1356,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
                      const vKeyEventState& state,
                      const Uint16& data,
                      const Uint8& capsStatus,
-                     const bool& otherControlKey) {
+                     const bool& otherControlKey,
+                     const bool& shortcutKey) {
     _isCaps = (capsStatus == 1 || //shift
                capsStatus == 2); //caps lock
     if ((IS_NUMBER_KEY(data) && capsStatus == 1)
@@ -1337,14 +1367,14 @@ void vKeyHandleEvent(const vKeyEvent& event,
         hNCC = 0;
         hExt = 1; //word break
         
-        //check macro feature
-        if (vUseMacro && isMacroBreakCode(data) && !_hasHandledMacro && findMacro(hMacroKey, hMacroData)) {
+        //check macro feature; not for a shortcut such as Cmd+Return, which must reach the app as is
+        if (!shortcutKey && vUseMacro && isMacroBreakCode(data) && !_hasHandledMacro && findMacro(hMacroKey, hMacroData)) {
             hCode = vReplaceMaro;
             hBPC = (Byte)hMacroKey.size();
             _hasHandledMacro = true;
-        } else if ((vQuickStartConsonant || vQuickEndConsonant) && !tempDisableKey && isMacroBreakCode(data)) {
+        } else if (!shortcutKey && (vQuickStartConsonant || vQuickEndConsonant) && !tempDisableKey && isMacroBreakCode(data)) {
             checkQuickConsonant();
-        } else if (vRestoreIfWrongSpelling && isWordBreak(event, state, data)) { //restore key if wrong spelling with break-key
+        } else if (!shortcutKey && vRestoreIfWrongSpelling && isWordBreak(event, state, data)) { //restore key if wrong spelling with break-key
             if (!tempDisableKey && vCheckSpelling) {
                 checkSpelling(true); //force check spelling
             }
@@ -1373,11 +1403,21 @@ void vKeyHandleEvent(const vKeyEvent& event,
             vCheckSpelling = _useSpellCheckingBefore;
             _willTempOffEngine = false;
         } else if (hCode == vReplaceMaro || _hasHandleQuickConsonant) {
-            _index = 0;
+            //the word ends here as well (_hasHandledMacro used to block the next word's macro):
+            //reset the session but keep the counts the output still needs
+            Byte bpc = hBPC, ncc = hNCC;
+            startNewSession();
+            hBPC = bpc;
+            hNCC = ncc;
+            vCheckSpelling = _useSpellCheckingBefore;
+            _willTempOffEngine = false;
         }
         
         //insert key for macro function
         if (vUseMacro) {
+            if (hCode == vReplaceMaro) { //the expansion consumed the key
+                hMacroKey.clear();
+            }
             if (_isCharKeyCode) {
                 hMacroKey.push_back(data | (_isCaps ? CAPS_MASK : 0));
             } else {
@@ -1437,10 +1477,14 @@ void vKeyHandleEvent(const vKeyEvent& event,
             if (_specialChar.size() == 0) {
                 restoreLastTypingState();
             }
+            if (vUseMacro && hMacroKey.size() > 0)
+                hMacroKey.pop_back(); //the deleted punctuation was part of the macro key
         } else if (_spaceCount > 0) { //previous char is space
             _spaceCount--;
             if (_spaceCount == 0) { //restore word
                 restoreLastTypingState();
+                if (vUseMacro)
+                    restoreMacroKey(); //Space had cleared it
             }
         } else {
             if (_stateIndex > 0) {
@@ -1471,6 +1515,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
                 startNewSession();
                 _specialChar.clear();
                 restoreLastTypingState();
+                if (vUseMacro)
+                    restoreMacroKey();
             } else { //August 23rd continue check grammar
                 checkGrammar(1);
             }
@@ -1498,6 +1544,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
         if (!IS_SPECIALKEY(data) || tempDisableKey) { //do nothing
             if (vQuickTelex && IS_QUICK_TELEX_KEY(data)) {
                 handleQuickTelex(data, _isCaps);
+                if (vUseMacro)
+                    updateMacroKey(data); //"cc" shows "ch": the key is "ch", not "c"
                 return;
             } else {
                 hCode = vDoNothing;
@@ -1528,18 +1576,7 @@ void vKeyHandleEvent(const vKeyEvent& event,
         
         //insert or replace key for macro feature
         if (vUseMacro) {
-            if (hCode == vDoNothing) {
-                hMacroKey.push_back(data | (_isCaps ? CAPS_MASK : 0));
-            } else if (hCode == vWillProcess || hCode == vRestore) {
-                for (i = 0; i < hBPC; i++) {
-                    if (hMacroKey.size() > 0) {
-                        hMacroKey.pop_back();
-                    }
-                }
-                for (i = _index - hBPC; i < hNCC + (_index - hBPC); i++) {
-                    hMacroKey.push_back(TypingWord[i]);
-                }
-            }
+            updateMacroKey(data);
         }
         
         if (vUpperCaseFirstChar) {

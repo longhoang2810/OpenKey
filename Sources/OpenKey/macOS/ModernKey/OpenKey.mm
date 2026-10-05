@@ -474,8 +474,8 @@ extern "C" {
         } while (_willContinuteSending);
         
         //the case when hCode is vRestore or vRestoreAndStartNewSession, the word is invalid and last key is control key such as TAB, LEFT ARROW, RIGHT ARROW,...
-        if (_willSendControlKey) {
-            SendKeyCode(_keycode);
+        if (_willSendControlKey) { //keep Shift: Shift+Return is a new line where Return sends
+            SendKeyCode(_keycode | (_flag & kCGEventFlagMaskShift ? CAPS_MASK : 0));
         }
     }
             
@@ -693,7 +693,8 @@ extern "C" {
                             vKeyEventState::KeyDown,
                             _keycode,
                             _flag & kCGEventFlagMaskShift ? 1 : (_flag & kCGEventFlagMaskAlphaShift ? 2 : 0),
-                            OTHER_CONTROL_KEY);
+                            OTHER_CONTROL_KEY,
+                            (_flag & (kCGEventFlagMaskCommand | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate)) != 0);
             if (pData->code == vDoNothing) { //do nothing
                 if (IS_DOUBLE_CODE(vCodeTable)) { //VNI
                     if (pData->extCode == 1) { //break key

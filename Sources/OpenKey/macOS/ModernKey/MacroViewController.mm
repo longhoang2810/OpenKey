@@ -71,7 +71,10 @@
     string text = [[self.macroName stringValue] UTF8String];
     string content = [[self.macroContent stringValue] UTF8String];
 
-    addMacro(text, content);
+    if (!addMacro(text, content)) {
+        [self showMessage:@"Từ gõ tắt tối đa 255 byte, nội dung tối đa 65535 byte!"];
+        return;
+    }
     self.macroName.stringValue = @"";
     self.macroContent.stringValue = @"";
     [self.macroName becomeFirstResponder];

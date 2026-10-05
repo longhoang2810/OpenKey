@@ -20,17 +20,34 @@ static int failures = 0;
 static void put(Uint32 keyWithCaps) {
     if ((keyWithCaps & CHAR_MASK) == KEY_DELETE) {
         if (!screen.empty()) screen.pop_back();
+    } else if ((keyWithCaps & CHAR_MASK) == KEY_RETURN) {
+        screen += u'\n';
     } else {
         screen += (char16_t)keyCodeToCharacter(keyWithCaps);
     }
 }
 
-static void press(char c) {
-    Uint32 k = c == ' ' ? KEY_SPACE : c == '\b' ? KEY_DELETE : _characterMap.at(c);
+static char16_t decode(Uint32 d) {
+    return (char16_t)((d & PURE_CHARACTER_MASK) || (d & CHAR_CODE_MASK) ? d : keyCodeToCharacter(d));
+}
+
+// shortcut: Cmd/Ctrl/Option held (OpenKey.mm passes it as both otherControlKey and shortcutKey)
+static void pressKey(Uint32 k, bool shortcut = false) {
     bool caps = k & CAPS_MASK;
-    vKeyHandleEvent(vKeyEvent::Keyboard, vKeyEventState::KeyDown, k & CHAR_MASK, caps ? 1 : 0, false);
+    vKeyHandleEvent(vKeyEvent::Keyboard, vKeyEventState::KeyDown, k & CHAR_MASK, caps ? 1 : 0, shortcut, shortcut);
     if (pData->code == vDoNothing) { //the key reaches the app
         put(k);
+        return;
+    }
+    if (pData->code == vReplaceMaro) { //handleMacro
+        int bs = pData->backspaceCount;
+        if (vFixRecommendBrowser) {
+            screen += u'\u202F';
+            bs++;
+        }
+        screen.erase(screen.size() - std::min((size_t)bs, screen.size()));
+        for (Uint32 d : pData->macroData) screen += decode(d);
+        put(k); //the key that triggered it
         return;
     }
     int bs = pData->backspaceCount;
@@ -40,14 +57,16 @@ static void press(char c) {
     }
     if (bs > 0 && bs < MAX_BUFF)
         screen.erase(screen.size() - std::min((size_t)bs, screen.size()));
-    for (int i = pData->newCharCount - 1; i >= 0; i--) {
-        Uint32 d = pData->charData[i];
-        screen += (char16_t)((d & PURE_CHARACTER_MASK) || (d & CHAR_CODE_MASK) ? d : keyCodeToCharacter(d));
-    }
+    for (int i = pData->newCharCount - 1; i >= 0; i--)
+        screen += decode(pData->charData[i]);
     if (pData->code == vRestore || pData->code == vRestoreAndStartNewSession)
         put(k);
     if (pData->code == vRestoreAndStartNewSession)
         startNewSession();
+}
+
+static void press(char c) {
+    pressKey(c == ' ' ? KEY_SPACE : c == '\b' ? KEY_DELETE : c == '\n' ? KEY_RETURN : _characterMap.at(c));
 }
 
 // What OpenKey.mm does on a click or a language switch (RequestNewSession).
@@ -119,6 +138,70 @@ int main() {
     press('\b');
     press('f');
     check("switch + backspace + f", utf8(screen), "chao hellf");
+
+    // macros: the macro key must match what the screen shows
+    addMacro("hoàn", "hoàn thành");
+    addMacro("c", "hello");
+    addMacro("oo", "ok");
+    addMacro("abc", "XYZ");
+    addMacro("ko", "không");
+    addMacro("vn", "Việt Nam");
+    addMacro("hn", "Hà Nội");
+    expect("hoafn ", "hoàn thành ");          // K2: mark moved by checkGrammar(-1)
+    expect("ooo ", "ok ");                     // K2: a restore ("ô" + o -> "oo")
+    vQuickTelex = 1;
+    expect("cc ", "ch ");                      // K2: Quick Telex "cc" is "ch", not macro "c"
+    vQuickTelex = 0;
+    expect("q ab`\b\bc ", "q ac ");           // G8: no expansion, nothing deleted before "ac"
+    expect("ab`\bc ", "XYZ ");                // G8: the deleted punctuation leaves the key
+    expect("k \bo ", "không ");                // G7: Backspace over Space brings the key back
+    addMacro("a.", "A-dot");
+    expect("a.,\b ", "A-dot ");               // G8: Backspace inside a punctuation run keeps the word
+    expect("vn\nhn ", "Việt Nam\nHà Nội ");   // N6: a Return expansion no longer blocks the next one
+    newSession();
+    screen.clear();
+    for (const char* p = "ko"; *p; p++) press(*p);
+    pressKey(KEY_RETURN, true);
+    check("ko + Cmd+Return", utf8(screen), "ko\n"); // N13: a shortcut does not expand
+
+    // N19: after a code table change the keys still match, so the macro can be deleted
+    addMacro("đc", "được");
+    vCodeTable = 2;
+    onTableCodeChange();
+    check("đc found after table change", hasMacro("đc") ? "yes" : "no", "yes");
+    check("đc deleted after table change", deleteMacro("đc") ? "yes" : "no", "yes");
+    vCodeTable = 0;
+    onTableCodeChange();
+
+    // K1: stored data is parsed within its size, names longer than one length byte are refused
+    const Byte truncated[] = {1, 0, 5, 'a'};
+    initMacroMap(truncated, sizeof truncated);
+    check("truncated macro data", hasMacro("a") ? "yes" : "no", "no");
+    const Byte badSwitch[] = {1, 0, 200, 'x'};
+    initSmartSwitchKey(badSwitch, sizeof badSwitch);
+    check("300-byte name refused", addMacro(std::string(300, 'a'), "x") ? "added" : "refused", "refused");
+    addMacro("ok", "fine");
+    std::vector<Byte> saved;
+    getMacroSaveData(saved);
+    initMacroMap(saved.data(), (int)saved.size());
+    check("macro data round trip", hasMacro("ok") ? "yes" : "no", "yes");
+
+    // N25: import strips CR, skips only a ';' header line and survives a line that is not UTF-8
+    std::string path = std::string(getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp") + "/openkey_macro_test.txt";
+    FILE* f = fopen(path.c_str(), "wb");
+    fputs(";header\r\nbtw:by the way\r\nbad:\xff\xfe\r\n", f);
+    fclose(f);
+    readFromFile(path, false);
+    std::vector<std::vector<Uint32>> keys; std::vector<std::string> names, contents;
+    getAllMacro(keys, names, contents);
+    check("CRLF import", names.size() == 1 ? contents[0] : "?", "by the way");
+    f = fopen(path.c_str(), "wb");
+    fputs("a:b\n", f);
+    fclose(f);
+    readFromFile(path, false);
+    check("headerless import", hasMacro("a") ? "yes" : "no", "yes");
+    remove(path.c_str());
+    initMacroMap(NULL, 0);
 
     // N24: the convert tool keeps the case unless a case option is set
     struct { bool allCaps, removeMark; const char* in; const char* want; } conv[] = {

@@ -28,6 +28,9 @@ void initSmartSwitchKey(const Byte* pData, const int& size) {
     Uint8 bundleIdSize;
     Uint8 value;
     for (int i = 0; i < count; i++) {
+        //stored data can be truncated or corrupt: stop at the first entry that does not fit
+        if (cursor + 1 > (Uint32)size || cursor + 1 + pData[cursor] + 1 > (Uint32)size)
+            break;
         bundleIdSize = pData[cursor++];
         string bundleId((char*)pData + cursor, bundleIdSize);
         cursor += bundleIdSize;

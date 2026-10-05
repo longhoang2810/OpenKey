@@ -203,7 +203,8 @@ void vKeyHandleEvent(const vKeyEvent& event,
                      const vKeyEventState& state,
                      const Uint16& data,
                      const Uint8& capsStatus=0,
-                     const bool& otherControlKey=false);
+                     const bool& otherControlKey=false,
+                     const bool& shortcutKey=false);
 
 /**
  * Start a new word
