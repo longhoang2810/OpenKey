@@ -459,15 +459,7 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
     self.VersionInfo = SecondaryLabel(@"", 11);
     NSStackView* about = [NSStackView stackViewWithViews:@[icon, VStack(@[name, SecondaryLabel(@"Fork từ mã nguồn OpenKey", 13), self.VersionInfo], 3)]];
     about.spacing = 14;
-
-    self.CheckNewVersionOnStartup = [self toggle:@selector(onCheckNewVersionOnStartup:)];
-    self.CheckNewVersionButton = [NSButton buttonWithTitle:@"Kiểm tra bản mới..." target:self action:@selector(onCheckNewVersionButton:)];
-
-    return Page(@[
-        about,
-        Section(@"Cập nhật", @[
-            Row(@"Kiểm tra bản mới lúc khởi động", nil, self.CheckNewVersionOnStartup, @"Tự động kiểm tra phiên bản mới nhất mỗi khi khởi chạy OpenKey"),
-            Row(@"Phiên bản mới", nil, self.CheckNewVersionButton, @"Bấm vào đây để kiểm tra phiên bản mới của OpenKey")], nil)]);
+    return Page(@[about]);
 }
 
 #pragma mark - Actions
@@ -639,11 +631,6 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
     [appDelegate showIconOnDock:vShowIconOnDock];
 }
 
-- (IBAction)onCheckNewVersionOnStartup:(NSSwitch *)sender {
-    NSInteger val = sender.state == NSControlStateValueOn ? 0 : 1;
-    [[NSUserDefaults standardUserDefaults] setInteger:val forKey:@"DontCheckUpdate"];
-}
-
 - (IBAction)onFixChromiumBrowser:(id)sender {
     NSInteger val = [self setCustomValue:sender keyToSet:@"vFixChromiumBrowser"];
     vFixChromiumBrowser = (int)val;
@@ -732,9 +719,6 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
     value = [[NSUserDefaults standardUserDefaults] integerForKey:@"vShowIconOnDock"];
     self.ShowIconOnDock.state = value ? NSControlStateValueOn : NSControlStateValueOff;
 
-    value = [[NSUserDefaults standardUserDefaults] integerForKey:@"DontCheckUpdate"];
-    self.CheckNewVersionOnStartup.state = value ? NSControlStateValueOff :NSControlStateValueOn;
-
     value = [[NSUserDefaults standardUserDefaults] integerForKey:@"vFixChromiumBrowser"];
     self.FixChromiumBrowser.state = value ? NSControlStateValueOn : NSControlStateValueOff;
     self.FixChromiumBrowser.enabled = fixRecommendBrowser ? YES : NO;
@@ -765,16 +749,6 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
             [[NSUserDefaults standardUserDefaults] setInteger:1 forKey:@"RunOnStartup"];
             self.RunOnStartupButton.state = NSControlStateValueOn;
         }
-    }];
-}
-
-- (IBAction)onCheckNewVersionButton:(id)sender {
-    self.CheckNewVersionButton.title = @"Đang kiểm tra...";
-    self.CheckNewVersionButton.enabled = false;
-
-    [OpenKeyManager checkNewVersion:self.view.window callbackFunc:^{
-        self.CheckNewVersionButton.enabled = true;
-        self.CheckNewVersionButton.title = @"Kiểm tra bản mới...";
     }];
 }
 

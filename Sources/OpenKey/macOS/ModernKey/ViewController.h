@@ -47,8 +47,6 @@
 @property (strong) NSSwitch *SendKeyStepByStep;
 @property (strong) NSSwitch *PerformLayoutCompat;
 
-@property (strong) NSSwitch *CheckNewVersionOnStartup;
-@property (strong) NSButton *CheckNewVersionButton;
 @property (strong) NSTextField *VersionInfo;
 
 -(void)fillData;

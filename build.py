@@ -46,6 +46,8 @@ def copy_existing_app():
         
     print(f"Copying baseline application from {src_app}...")
     shutil.copytree(src_app, APP_DIR, symlinks=True)
+    # This fork has no auto-update: drop the upstream updater the baseline bundle carries.
+    shutil.rmtree(os.path.join(APP_LOGINITEMS_DIR, "OpenKeyUpdate.app"), ignore_errors=True)
 
 def compile_helper():
     print("Compiling OpenKeyHelper executable...")
