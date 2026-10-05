@@ -78,6 +78,7 @@ extern "C" {
     int _i, _j, _k;
     Uint32 _tempChar;
     bool _hasJustUsedHotKey = false;
+    bool _isAutorepeat = false;
 
     int _languageTemp = 0; //use for smart switch key
     vector<Byte> savedSmartSwitchKeyData; ////use for smart switch key
@@ -144,6 +145,8 @@ extern "C" {
     void RequestNewSession() {
         //send event signal to Engine
         vKeyHandleEvent(vKeyEvent::Mouse, vKeyEventState::MouseDown, 0);
+        //the output is never sent here, so drop whatever the engine prepared (e.g. a spelling restore)
+        startNewSession();
         
         if (IS_DOUBLE_CODE(vCodeTable)) { //VNI
             _syncKey.clear();
@@ -474,16 +477,16 @@ extern "C" {
         }
     }
             
-    bool checkHotKey(int hotKeyData, bool checkKeyCode=true) {
+    bool checkHotKey(int hotKeyData, CGEventFlags flags, bool checkKeyCode=true) {
         if ((hotKeyData & (~0x8000)) == EMPTY_HOTKEY)
             return false;
-        if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskControl))
+        if (HAS_CONTROL(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskControl))
             return false;
-        if (HAS_OPTION(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskAlternate))
+        if (HAS_OPTION(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskAlternate))
             return false;
-        if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskCommand))
+        if (HAS_COMMAND(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskCommand))
             return false;
-        if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(_lastFlag & kCGEventFlagMaskShift))
+        if (HAS_SHIFT(hotKeyData) ^ GET_BOOL(flags & kCGEventFlagMaskShift))
             return false;
         if (checkKeyCode) {
             if (GET_SWITCH_KEY(hotKeyData) != _keycode)
@@ -503,7 +506,8 @@ extern "C" {
         dispatch_async(dispatch_get_main_queue(), ^{
             [appDelegate onImputMethodChanged:YES];
         });
-        startNewSession();
+        //not just startNewSession: Backspace must not restore a word typed before the switch
+        RequestNewSession();
     }
 
     void QuickConvertAsync() {
@@ -596,14 +600,19 @@ extern "C" {
             if (GET_SWITCH_KEY(vSwitchKeyStatus) != _keycode && GET_SWITCH_KEY(convertToolHotKey) != _keycode) {
                 _lastFlag = 0;
             } else {
-                if (GET_SWITCH_KEY(vSwitchKeyStatus) == _keycode && checkHotKey(vSwitchKeyStatus, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)){
-                    switchLanguage();
+                //use this key press's flags: _lastFlag is cleared after a hotkey, so a second
+                //press with the modifier still held used to leak the key to the app
+                _isAutorepeat = CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat) != 0;
+                if (GET_SWITCH_KEY(vSwitchKeyStatus) == _keycode && checkHotKey(vSwitchKeyStatus, _flag, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)){
+                    if (!_isAutorepeat)
+                        switchLanguage();
                     _lastFlag = 0;
                     _hasJustUsedHotKey = true;
                     return NULL;
                 }
-                if (GET_SWITCH_KEY(convertToolHotKey) == _keycode && checkHotKey(convertToolHotKey, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)){
-                    QuickConvertAsync();
+                if (GET_SWITCH_KEY(convertToolHotKey) == _keycode && checkHotKey(convertToolHotKey, _flag, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)){
+                    if (!_isAutorepeat)
+                        QuickConvertAsync();
                     _lastFlag = 0;
                     _hasJustUsedHotKey = true;
                     return NULL;
@@ -615,13 +624,13 @@ extern "C" {
                 _lastFlag = _flag;
             } else if (_lastFlag > _flag)  {
                 //check switch
-                if (checkHotKey(vSwitchKeyStatus, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)) {
+                if (checkHotKey(vSwitchKeyStatus, _lastFlag, GET_SWITCH_KEY(vSwitchKeyStatus) != 0xFE)) {
                     _lastFlag = 0;
                     switchLanguage();
                     _hasJustUsedHotKey = true;
                     return NULL;
                 }
-                if (checkHotKey(convertToolHotKey, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)) {
+                if (checkHotKey(convertToolHotKey, _lastFlag, GET_SWITCH_KEY(convertToolHotKey) != 0xFE)) {
                     _lastFlag = 0;
                     QuickConvertAsync();
                     _hasJustUsedHotKey = true;
@@ -647,6 +656,13 @@ extern "C" {
         
         _proxy = proxy;
         
+        //handle mouse before the English-mode branch, so a click also resets the macro key
+        //and word history there (otherwise they leak into the next field or a later switch)
+        if (type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown || type == kCGEventLeftMouseDragged || type == kCGEventRightMouseDragged) {
+            RequestNewSession();
+            return event;
+        }
+        
         //If is in english mode
         if (vLanguage == 0) {
             if (vUseMacro && vUseMacroInEnglishMode && type == kCGEventKeyDown) {
@@ -660,12 +676,6 @@ extern "C" {
                     return NULL;
                 }
             }
-            return event;
-        }
-        
-        //handle mouse
-        if (type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown || type == kCGEventLeftMouseDragged || type == kCGEventRightMouseDragged) {
-            RequestNewSession();
             return event;
         }
 

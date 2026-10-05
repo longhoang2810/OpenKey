@@ -832,9 +832,14 @@ void insertD(const Uint16& data, const bool& isCaps) {
 void insertAOE(const Uint16& data, const bool& isCaps) {
     findAndCalculateVowel();
     
-    //remove W tone
+    //remove W tone; vowels before the one changed below must be redrawn too
+    int firstHornRemoved = _index;
     for (ii = VSI; ii <= VEI; ii++) {
-        TypingWord[ii] &= ~TONEW_MASK;
+        if (TypingWord[ii] & TONEW_MASK) {
+            TypingWord[ii] &= ~TONEW_MASK;
+            if (ii < firstHornRemoved)
+                firstHornRemoved = ii;
+        }
     }
     
     hCode = vWillProcess;
@@ -847,7 +852,7 @@ void insertAOE(const Uint16& data, const bool& isCaps) {
                 //restore and disable temporary
                 hCode = vRestore;
                 TypingWord[ii] &= ~TONE_MASK;
-                hData[_index - 1 - ii] = TypingWord[ii];
+                hData[_index - 1 - ii] = GET(TypingWord[ii]);
                 //_index = 0;
                 if (data != KEY_O) //case thoòng
                     tempDisableKey = true;
@@ -863,6 +868,10 @@ void insertAOE(const Uint16& data, const bool& isCaps) {
         } else { //preresent old char
             hData[_index - 1 - ii] = GET(TypingWord[ii]);
         }
+    }
+    for (ii--; ii >= firstHornRemoved; ii--) { //e.g. "ươ" + o: the "ư" lost its horn
+        hBPC++;
+        hData[_index - 1 - ii] = GET(TypingWord[ii]);
     }
     hNCC = hBPC;
 }
@@ -897,12 +906,12 @@ void insertW(const Uint16& data, const bool& isCaps) {
             hCode = vWillProcess;
             
             if ((CHR(VSI) == KEY_U && CHR(VSI+1) == KEY_O)) {
-                if (VSI - 2 >= 0 && TypingWord[VSI - 2] == KEY_T && TypingWord[VSI - 1] == KEY_H) {
+                if (VSI - 2 >= 0 && CHR(VSI - 2) == KEY_T && CHR(VSI - 1) == KEY_H) {
                     TypingWord[VSI+1] |= TONEW_MASK;
                     if (VSI + 2 < _index && CHR(VSI+2) == KEY_N) {
                         TypingWord[VSI] |= TONEW_MASK;
                     }
-                } else if (VSI - 1 >= 0 && TypingWord[VSI - 1] == KEY_Q) {
+                } else if (VSI - 1 >= 0 && CHR(VSI - 1) == KEY_Q) {
                     TypingWord[VSI+1] |= TONEW_MASK;
                 } else {
                     TypingWord[VSI] |= TONEW_MASK;
@@ -957,7 +966,7 @@ void insertW(const Uint16& data, const bool& isCaps) {
                     } else {
                         hCode = vRestore;
                         TypingWord[ii] &= ~TONEW_MASK;
-                        hData[_index - 1 - ii] = TypingWord[ii];
+                        hData[_index - 1 - ii] = GET(TypingWord[ii]); //keeps a mark such as ù
                         isRestoredW = true;
                         //_index++;
                     }
