@@ -22,6 +22,7 @@
 -(void)onCodeTableChanged:(int)index;
 
 -(void)setRunOnStartup:(BOOL)val;
+-(BOOL)isRunOnStartup;
 -(void)loadDefaultConfig;
 
 -(void)setGrayIcon:(BOOL)val;

@@ -48,6 +48,8 @@ extern int vFixChromiumBrowser;
 extern int vPerformLayoutCompat;
 
 extern "C" {
+    bool IsRecordingHotKey(void); //MyTextField.m
+
     //app which must sent special empty character
     NSArray* _niceSpaceApp = @[@"com.sublimetext.3",
                                @"com.sublimetext.2",
@@ -584,6 +586,11 @@ extern "C" {
         }
         //dont handle my event
         if (CGEventGetIntegerValueField(event, kCGEventSourceStateID) == CGEventSourceGetSourceStateID(myEventSource)) {
+            return event;
+        }
+        
+        //a hotkey field in OpenKey's own window is recording: let it see the real keys
+        if ((type == kCGEventKeyDown || type == kCGEventKeyUp || type == kCGEventFlagsChanged) && IsRecordingHotKey()) {
             return event;
         }
         

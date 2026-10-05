@@ -172,10 +172,7 @@ extern bool convertToolDontAlertWhenCompleted;
         [self loadDefaultConfig];
     }
     [[NSUserDefaults standardUserDefaults] setInteger:1 forKey:@"NonFirstTime"];
-    
-    //correct run on startup
-    NSInteger val = [[NSUserDefaults standardUserDefaults] integerForKey:@"RunOnStartup"];
-    [appDelegate setRunOnStartup:val];
+    //the login item is not re-applied at launch: that would undo turning it off in System Settings
 }
 
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
@@ -308,9 +305,20 @@ extern bool convertToolDontAlertWhenCompleted;
     [viewController fillData];
 }
 
+//the helper in Contents/Library/LoginItems launches OpenKey at login; SMAppService replaces the
+//deprecated SMLoginItemSetEnabled for it and reports the real state (the user can turn it off
+//in System Settings > General > Login Items)
 -(void)setRunOnStartup:(BOOL)val {
-    CFStringRef appId = (__bridge CFStringRef)@"com.tuyenmai.OpenKeyHelper";
-    SMLoginItemSetEnabled(appId, val);
+    SMAppService* helper = [SMAppService loginItemServiceWithIdentifier:@"com.tuyenmai.OpenKeyHelper"];
+    NSError* error = nil;
+    if (val ? ![helper registerAndReturnError:&error] : ![helper unregisterAndReturnError:&error])
+        NSLog(@"OpenKey: login item %@ failed: %@", val ? @"register" : @"unregister", error);
+    if (val && helper.status == SMAppServiceStatusRequiresApproval)
+        [SMAppService openSystemSettingsLoginItems];
+}
+
+-(BOOL)isRunOnStartup {
+    return [SMAppService loginItemServiceWithIdentifier:@"com.tuyenmai.OpenKeyHelper"].status == SMAppServiceStatusEnabled;
 }
 
 -(void)setGrayIcon:(BOOL)val {
@@ -401,8 +409,8 @@ extern bool convertToolDontAlertWhenCompleted;
         [mnuVietnameseLocaleCP1258 setState:NSControlStateValueOn];
     }
     vCodeTable = (int)intCode;
-    // RunOnStartup is applied at launch and on toggle only: SMLoginItemSetEnabled is a slow IPC
-    // and fillData runs on every language switch.
+    // RunOnStartup is applied on toggle only: the login item calls are IPC and fillData runs
+    // on every language switch.
 }
 
 -(void)onImputMethodChanged:(BOOL)willNotify {
@@ -528,7 +536,20 @@ extern bool convertToolDontAlertWhenCompleted;
 
 #pragma mark Reset OpenKey after mac computer awake
 -(void)receiveWakeNote: (NSNotification*)note {
-    [OpenKeyManager initEventTap];
+    [self startEventTapAfterWake:5];
+}
+
+//right after wake the tap can fail to be created; retry, then show the panel as a failed launch does
+-(void)startEventTapAfterWake:(int)triesLeft {
+    if ([OpenKeyManager initEventTap])
+        return;
+    if (triesLeft > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            [self startEventTapAfterWake:triesLeft - 1];
+        });
+        return;
+    }
+    [self onControlPanelSelected];
 }
 
 -(void)receiveSleepNote: (NSNotification*)note {

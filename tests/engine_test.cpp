@@ -120,6 +120,38 @@ int main() {
     press('f');
     check("switch + backspace + f", utf8(screen), "chao hellf");
 
+    // N24: the convert tool keeps the case unless a case option is set
+    struct { bool allCaps, removeMark; const char* in; const char* want; } conv[] = {
+        {false, false, "Hà Nội, Việt Nam", "Hà Nội, Việt Nam"},
+        {true,  false, "HÀ nội", "HÀ NỘI"},
+        {false, true,  "Hà Nội", "Ha Noi"},
+    };
+    for (auto& c : conv) {
+        convertToolFromCode = convertToolToCode = 0;
+        convertToolToAllCaps = c.allCaps;
+        convertToolRemoveMark = c.removeMark;
+        check(c.in, convertUtil(c.in), c.want);
+    }
+    convertToolToAllCaps = convertToolRemoveMark = false;
+    // N23: the last character is encoded like the others (it was pushed as one packed table
+    // value; for CP1258 "đã" that was a lone surrogate and the UTF-8 conversion threw)
+    convertToolFromCode = 0; convertToolToCode = 3;
+    check("compound cá", convertUtil("cá"), "ca\xCC\x81");
+    for (Uint8 table : {2, 4}) {
+        convertToolFromCode = 0; convertToolToCode = table;
+        bool bytes = true;
+        for (wchar_t c : utf8ToWideString(convertUtil("đã"))) bytes = bytes && c < 0x100;
+        check(table == 2 ? "VNI đã is single bytes" : "CP1258 đã is single bytes", bytes ? "yes" : "no", "yes");
+    }
+    // and a word ending in a marked letter survives a round trip through the 2-unit tables
+    for (Uint8 table : {2, 3, 4}) { //VNI Windows, Unicode compound, CP1258
+        convertToolFromCode = 0; convertToolToCode = table;
+        std::string encoded = convertUtil("cá đã Hà");
+        convertToolFromCode = table; convertToolToCode = 0;
+        check(table == 2 ? "round trip VNI" : table == 3 ? "round trip compound" : "round trip CP1258",
+              convertUtil(encoded), "cá đã Hà");
+    }
+
     printf(failures ? "%d failure(s)\n" : "all passed\n", failures);
     return failures != 0;
 }

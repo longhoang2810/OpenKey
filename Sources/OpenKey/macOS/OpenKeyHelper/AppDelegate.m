@@ -16,13 +16,16 @@
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
-    NSArray* runningApp = [[NSWorkspace sharedWorkspace] runningApplications];
-    if (![runningApp containsObject:@"com.tuyenmai.openkey"]) {
+    //runningApplications holds NSRunningApplication objects, so the old containsObject: with a
+    //bundle id string never matched
+    if ([NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.tuyenmai.openkey"].count == 0) {
         NSString* path = [[NSBundle mainBundle] bundlePath];
         for (int i = 0; i < 4; i++)
             path = [path stringByDeletingLastPathComponent];
         [[NSWorkspace sharedWorkspace] launchApplication:path];
     }
+    //its only job is done; it used to stay running for the whole session
+    [NSApp terminate:nil];
 }
 
 

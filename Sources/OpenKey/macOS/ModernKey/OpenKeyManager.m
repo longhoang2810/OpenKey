@@ -16,6 +16,7 @@ extern CGEventRef OpenKeyCallback(CGEventTapProxy proxy,
                                   void *refcon);
 
 extern NSString* ConvertUtil(NSString* str);
+extern bool convertToolToAllCaps, convertToolToAllNonCaps, convertToolToCapsFirstLetter, convertToolToCapsEachWord;
 
 @interface OpenKeyManager ()
 
@@ -38,8 +39,12 @@ static CFRunLoopSourceRef runLoopSource;
     if (_isInited)
         return true;
     
-    //init modernKey
-    OpenKeyInit();
+    //init modernKey once: it creates the event source and loads the settings, and
+    //initEventTap runs again on every wake (re-running it leaked the event source)
+    static dispatch_once_t initOnce;
+    dispatch_once(&initOnce, ^{
+        OpenKeyInit();
+    });
     
     // Create an event tap. We are interested in key presses.
     eventMask = ((1 << kCGEventKeyDown) |
@@ -115,7 +120,9 @@ static CFRunLoopSourceRef runLoopSource;
 #pragma mark -Convert feature
 +(BOOL)quickConvert {
     NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-    NSString *htmlString = [pasteboard stringForType:NSPasteboardTypeHTML];
+    //a case change would also hit tags, links and base64 images, so then keep only the plain text
+    BOOL changeCase = convertToolToAllCaps || convertToolToAllNonCaps || convertToolToCapsFirstLetter || convertToolToCapsEachWord;
+    NSString *htmlString = changeCase ? nil : [pasteboard stringForType:NSPasteboardTypeHTML];
     NSString *rawString = [pasteboard stringForType:NSPasteboardTypeString];
     bool converted = false;
     if (htmlString != nil) {

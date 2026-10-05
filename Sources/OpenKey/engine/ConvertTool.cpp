@@ -48,6 +48,34 @@ static Uint16 getUnicodeCompoundMarkIndex(const Uint16& mark) {
     return 0;
 }
 
+//a table entry j/k (even k = upper case, odd k = lower case) in the target table and case;
+//with no case option the letter keeps its case
+static Uint16 convertedChar(const int& j, int k, const bool& upper, const bool& lower) {
+    if (upper && k % 2 != 0)
+        k--;
+    else if (lower && k % 2 == 0)
+        k++;
+    if (convertToolRemoveMark) {
+        Uint16 plain = keyCodeToCharacter((Uint8)j);
+        return k % 2 == 0 ? towupper(plain) : plain;
+    }
+    return _codeTable[convertToolToCode][j][k];
+}
+
+//append a table value in the target table's encoding (VNI/1258 use 2 bytes, compound a combining mark)
+static void pushConverted(vector<wchar_t>& out, const Uint16& target) {
+    if (convertToolToCode == 2 || convertToolToCode == 4) { //VNI, VN Locale 1258
+        out.push_back((Uint8)target);
+        if (HIBYTE(target) > 32)
+            out.push_back(target>>8);
+    } else if (convertToolToCode == 3 && (target >> 13) > 0) { //Unicode Compound
+        out.push_back(target & 0x1FFF);
+        out.push_back(_unicodeCompoundMark[(target>>13) - 1]);
+    } else {
+        out.push_back(target);
+    }
+}
+
 string convertUtil(const string& sourceString) {
     wstring data = utf8ToWideString(sourceString);
     Uint16 t = 0, target;
@@ -59,9 +87,13 @@ string convertUtil(const string& sourceString) {
         shouldUpperCase = true;
     if (convertToolToAllNonCaps)
         shouldUpperCase = false;
+    const bool changeCase = convertToolToAllCaps || convertToolToAllNonCaps || convertToolToCapsFirstLetter || convertToolToCapsEachWord;
+    bool upper, lower;
     
     for (int i = 0; i < data.size(); i++) {
         p = 0;
+        upper = convertToolToAllCaps || shouldUpperCase;
+        lower = !upper && changeCase;
         //find char with tone/mark
         if (i < data.size() - 1) {
             switch (convertToolFromCode) {
@@ -87,40 +119,7 @@ string convertUtil(const string& sourceString) {
             
             if (findKeyCode(t, convertToolFromCode, j, k)) {
                 i += p;
-                target = _codeTable[convertToolToCode][j][k];
-                if ((convertToolToAllCaps || shouldUpperCase) && k % 2 != 0) {
-                    target = _codeTable[convertToolToCode][j][k-1];
-                } else if ((convertToolToAllNonCaps || !shouldUpperCase) && k % 2 == 0) {
-                    target = _codeTable[convertToolToCode][j][k+1];
-                }
-                
-                //remove mark/tone
-                if (convertToolRemoveMark) {
-                    target = keyCodeToCharacter((Uint8)j);
-                    if (convertToolToAllCaps) {
-                        target = towupper(target);
-                    } else if (convertToolToAllNonCaps) {
-                        target = towlower(target);
-                    }
-                }
-                
-                if (convertToolToCode == 0 || convertToolToCode == 1) { //Unicode
-                    _temp.push_back(target);
-                } else if (convertToolToCode == 2 || convertToolToCode == 4) { //VNI, VN Locale 1258
-                    if (HIBYTE(target) > 32) {
-                        _temp.push_back((Uint8)target);
-                        _temp.push_back(target>>8);
-                    } else {
-                        _temp.push_back((Uint8)target);
-                    }
-                } else if (convertToolToCode == 3) { //Unicode Compound
-                    if ((target >> 13) > 0) {
-                        _temp.push_back(target & 0x1FFF);
-                        _temp.push_back(_unicodeCompoundMark[(target>>13) - 1]);
-                    } else {
-                        _temp.push_back(target);
-                    }
-                }
+                pushConverted(_temp, convertedChar(j, k, upper, lower));
                 shouldUpperCase = false;
                 hasBreak = false;
                 continue;
@@ -130,33 +129,17 @@ string convertUtil(const string& sourceString) {
         //find primary keycode first
         t = (Uint16)data[i];
         if (findKeyCode(t, convertToolFromCode, j, k)) {
-            target = _codeTable[convertToolToCode][j][k];
-            if ((convertToolToAllCaps || shouldUpperCase) && k % 2 != 0) {
-                target = _codeTable[convertToolToCode][j][k-1];
-            } else if ((convertToolToAllNonCaps || !shouldUpperCase) && k % 2 == 0) {
-                target = _codeTable[convertToolToCode][j][k+1];
-            }
-            
-            //remove mark/tone
-            if (convertToolRemoveMark) {
-                target = keyCodeToCharacter((Uint8)j);
-                if (convertToolToAllCaps) {
-                    target = towupper(target);
-                } else if (convertToolToAllNonCaps){
-                    target = towlower(target);
-                }
-            }
-            
-            _temp.push_back(target);
+            //encode as above: a one-unit match (e.g. the last character) used to be pushed as a raw table value
+            pushConverted(_temp, convertedChar(j, k, upper, lower));
             shouldUpperCase = false;
             hasBreak = false;
             continue;
         }
         
         //if dont find => normal char
-        if (convertToolToAllCaps || shouldUpperCase)
+        if (upper)
             _temp.push_back(towupper(data[i]));
-        else if (convertToolToAllNonCaps || !shouldUpperCase)
+        else if (lower)
             _temp.push_back(towlower(data[i]));
         else
             _temp.push_back(data[i]);

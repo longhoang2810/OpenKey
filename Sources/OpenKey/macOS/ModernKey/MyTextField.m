@@ -9,6 +9,16 @@
 #import "MyTextField.h"
 #include <Carbon/Carbon.h>
 
+//the hotkey field that is recording, if any
+static __weak MyTextField* _recordingField;
+
+//OpenKey's tap must not convert or act on keys typed into a hotkey field, or the field records
+//the synthetic output instead (W became keycode 0 'Æ') and the current hotkey cannot be recorded
+bool IsRecordingHotKey(void) {
+    MyTextField* field = _recordingField;
+    return field && field.currentEditor && field.window.isKeyWindow && NSApp.isActive;
+}
+
 @implementation MyTextField {
     id eventMonitor;
 }
@@ -23,11 +33,15 @@
     BOOL okToChange = [super becomeFirstResponder];
     if (okToChange) {
         [self setKeyboardFocusRingNeedsDisplayInRect: [self bounds]];
+        _recordingField = self;
         
         if (!eventMonitor) {
             eventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSKeyDownMask handler:^(NSEvent *event) {
                 self.LastKeyCode = event.keyCode;
-                self.LastKeyChar = event.characters.UTF8String[0];
+                //the label is one ASCII byte; ignore modifiers so Option+Z records 'z', not 'Ω'
+                NSString* chars = event.charactersIgnoringModifiers.lowercaseString;
+                unichar chr = chars.length > 0 ? [chars characterAtIndex:0] : 0;
+                self.LastKeyChar = chr > 0x20 && chr < 0x7F ? chr : '?';
                 return event;
             } ];
             
@@ -39,6 +53,8 @@
 -(void) textDidEndEditing:(NSNotification *)notification {
     [NSEvent removeMonitor:eventMonitor];
     eventMonitor = nil;
+    if (_recordingField == self)
+        _recordingField = nil;
 }
 
 - (void)textDidChange:(NSNotification *)notification {

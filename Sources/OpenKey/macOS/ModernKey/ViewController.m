@@ -308,6 +308,8 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
 - (void)viewWillAppear {
     [super viewWillAppear];
     [self initKey];
+    //read here, not in fillData: the status is an IPC call and fillData runs on every language switch
+    self.RunOnStartupButton.state = [appDelegate isRunOnStartup] ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
 -(void)initKey {
@@ -499,6 +501,7 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
 - (IBAction)onRunOnStartup:(id)sender {
     NSInteger val = [self setCustomValue:sender keyToSet:@"RunOnStartup"];
     [appDelegate setRunOnStartup:val];
+    self.RunOnStartupButton.state = [appDelegate isRunOnStartup] ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
 - (IBAction)onGrayIcon:(id)sender {
@@ -662,8 +665,6 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
     NSInteger spelling = [[NSUserDefaults standardUserDefaults] integerForKey:@"Spelling"];
     self.CheckSpellingButton.state = spelling ? NSControlStateValueOn : NSControlStateValueOff;
 
-    NSInteger runOnStartup = [[NSUserDefaults standardUserDefaults] integerForKey:@"RunOnStartup"];
-    self.RunOnStartupButton.state = runOnStartup ? NSControlStateValueOn : NSControlStateValueOff;
 
     NSInteger useGrayIcon = [[NSUserDefaults standardUserDefaults] integerForKey:@"GrayIcon"];
     self.UseGrayIcon.state = useGrayIcon ? NSControlStateValueOn : NSControlStateValueOff;
@@ -747,7 +748,7 @@ static NSScrollView* Page(NSArray<NSView*>* sections) {
             self.ShowUIButton.state = NSControlStateValueOff;
 
             [[NSUserDefaults standardUserDefaults] setInteger:1 forKey:@"RunOnStartup"];
-            self.RunOnStartupButton.state = NSControlStateValueOn;
+            self.RunOnStartupButton.state = [appDelegate isRunOnStartup] ? NSControlStateValueOn : NSControlStateValueOff;
         }
     }];
 }
