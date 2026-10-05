@@ -165,6 +165,15 @@ def compile_main_app():
     # Clean up object files
     shutil.rmtree(obj_dir)
 
+def compile_storyboard():
+    # The baseline bundle ships an old compiled storyboard; rebuild it so UI changes land.
+    print("Compiling storyboard...")
+    output = os.path.join(APP_DIR, "Contents", "Resources", "Base.lproj", "Main.storyboardc")
+    if os.path.exists(output):
+        shutil.rmtree(output)
+    run_cmd(["xcrun", "ibtool", "--errors", "--compile", output,
+             os.path.join(MODERNKEY_ROOT, "Base.lproj", "Main.storyboard")])
+
 def codesign_apps():
     print("Performing ad-hoc codesigning...")
     
@@ -183,6 +192,7 @@ def main():
     copy_existing_app()
     compile_helper()
     compile_main_app()
+    compile_storyboard()
     codesign_apps()
     
     print("\n=== BUILD COMPLETED SUCCESSFULLY ===")

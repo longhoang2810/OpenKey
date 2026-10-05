@@ -445,6 +445,7 @@ extern bool convertToolDontAlertWhenCompleted;
         _convertWC = [[NSStoryboard storyboardWithName:@"Main" bundle:nil] instantiateControllerWithIdentifier:@"ConvertWindow"];
     }
     //[OpenKeyManager showDockIcon:YES];
+    [NSApp activate]; // menu bar app: bring its windows to the front, not behind other apps
     if ([_convertWC.window isVisible])
         return;
     [_convertWC.window makeKeyAndOrderFront:nil];
@@ -463,9 +464,18 @@ extern bool convertToolDontAlertWhenCompleted;
 
 -(void) onControlPanelSelected {
     if (_mainWC == nil) {
-        _mainWC = [[NSStoryboard storyboardWithName:@"Main" bundle:nil] instantiateControllerWithIdentifier:@"OpenKey"];
+        NSWindow* window = [NSWindow windowWithContentViewController:[[ViewController alloc] init]];
+        window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+        window.toolbar = [[NSToolbar alloc] init]; // unified title bar like System Settings
+        window.toolbarStyle = NSWindowToolbarStyleUnified;
+        window.releasedWhenClosed = NO;
+        [window setContentSize:NSMakeSize(720, 560)];
+        window.contentMinSize = NSMakeSize(640, 420);
+        [window center];
+        _mainWC = [[NSWindowController alloc] initWithWindow:window];
     }
     //[OpenKeyManager showDockIcon:YES];
+    [NSApp activate];
     if ([_mainWC.window isVisible]) {
         return;
     }
@@ -478,6 +488,7 @@ extern bool convertToolDontAlertWhenCompleted;
         _macroWC = [[NSStoryboard storyboardWithName:@"Main" bundle:nil] instantiateControllerWithIdentifier:@"MacroWindow"];
     }
     //[OpenKeyManager showDockIcon:YES];
+    [NSApp activate];
     if ([_macroWC.window isVisible])
         return;
     
@@ -490,6 +501,7 @@ extern bool convertToolDontAlertWhenCompleted;
         _aboutWC = [[NSStoryboard storyboardWithName:@"Main" bundle:nil] instantiateControllerWithIdentifier:@"AboutWindow"];
     }
     //[OpenKeyManager showDockIcon:YES];
+    [NSApp activate];
     if ([_aboutWC.window isVisible])
         return;
 

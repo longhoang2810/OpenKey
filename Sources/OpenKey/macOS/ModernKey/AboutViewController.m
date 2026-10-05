@@ -28,18 +28,6 @@
     self.CheckUpdateOnStatus.state = dontCheckUpdate ? NSControlStateValueOff :NSControlStateValueOn;
 }
 
-- (IBAction)onHomePage:(id)sender {
-    [[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString:@"https://github.com/tuyenvm/OpenKey"]];
-}
-
-- (IBAction)onFanPage:(id)sender {
-    [[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString:@"https://www.facebook.com/OpenKeyVN"]];
-}
-
-- (IBAction)onLatestReleaseVersion:(id)sender {
-    [[NSWorkspace sharedWorkspace] openURL: [NSURL URLWithString:@"https://github.com/tuyenvm/OpenKey/releases"]];
-}
-
 - (IBAction)onCheckUpdateOnStartup:(NSButton *)sender {
     NSInteger val = sender.state == NSControlStateValueOn ? 0 : 1;
     [[NSUserDefaults standardUserDefaults] setInteger:val forKey:@"DontCheckUpdate"];
